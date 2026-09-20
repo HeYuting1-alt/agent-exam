@@ -1,0 +1,59 @@
+# 行动文档：把定稿的对比接口写入 HTTP_API.md §10.4
+
+## 状态与情况说明
+
+- 状态：进行中（本文件先落盘，完成后回填自验证结果）
+- 来源请求：用户按任务 03 发出脚本，要求把 D 定稿的跨批次对比接口写入 `docs/interfaces/HTTP_API.md` 的 §10.3 之后成为 §10.4，并在 fork 上建分支、提 PR。用户给的脚本被截断：`python - <<'PY'` 没有结束标记、Python 字符串未收尾、也没有 `git add/commit/push`；其中粘贴的响应示例还停留在提案早期版本。因此本次按“查明真实状态再落笔”执行，不照抄脚本正文。
+- 职责依据：任务 03 的任务 DRI 是 **B（Web 与 HTTP 模块）**，`HTTP_API.md` 由该模块维护；[D 的定稿提案](2026-09-20-d-comparison-api-proposal.md)第 5 节把“本文落入 `HTTP_API.md` §10.4”列为 **B** 的工作。本次即该项落笔。
+- 当前事实（本次逐条核对，均以代码和测试为准）：
+  - 对比端点**已实现并已注册**：`delivery/http/routes/jobs/report_comparisons.py`、`delivery/http/app.py:124`；契约测试 `tests/jobs/reporting/test_comparison_http.py` 有 3 个用例。`HTTP_API.md` 此前没有 §10.4，全库文档也没有描述该端点。
+  - 真实 `totals` 形状是 **7 个整数**：`resolved/unresolved/infrastructure_error/incomplete/missing/decided/total`；其中 `decided = resolved + unresolved + infrastructure_error + incomplete`，`total = decided + missing`（`report_comparisons.py:48-111`）。测试断言 `body["totals"][0]["total"] == 2`。
+  - 用户脚本与 D 提案 §2 示例里的 `"coverage": "6/6"` **不存在于实现**。提案 §6 决定 4 已明确“`totals` 提供 `decided` 与 `total` 两个整数，**不另设字符串覆盖率**”，实现与测试都按该决定；只有提案 §2 的示例与字段表仍留着旧的 `coverage`，属于失效描述。
+  - 已实现的 400 族只有三种：空选择 `EMPTY_COMPARISON_SELECTION`、非 UUID `INVALID_REQUEST`、超过 20 个 `COMPARISON_LIMIT_EXCEEDED`（`test_comparison_http.py:115-129`、`errors.py:84-90`）。**“未知参数、重复参数返回 400”没有实现**：本仓没有严格 query 校验层，FastAPI 默认忽略未知 query 参数、重复标量参数取最后一个值。提案 §4 该行不能照写。
+  - 去重按出现顺序（`dict.fromkeys`）、上限 20（`MAX_COMPARISON_JOBS`）、任一无权或不可读 Job 令整体失败且不指出是哪个、`internal_test` 按不存在处理（`service.py:57-73`）。
+  - 行序为 `(repo, task_instance_id)` 升序（`matrix.py:94`）。
+  - §2.1 清单自称“只列已经注册的 31 个 HTTP 端点”，而源码现有 **32** 个路由装饰器，第 32 个正是对比端点；Web 侧 `apps/web/src/` 没有任何 `comparisons` 调用（对比页 UI 尚未实现，属任务 03 后续）。
+  - `GET /api/v1/reports/comparisons` 落在 §12 映射表已有的 `/reports` 行内，无需改动该表。
+- 已确认决定：
+  - 文档以**代码与测试**为准，不复制用户脚本/提案 §2 中不存在的 `coverage` 字段。
+  - §10.4 只写已实现且可核验的行为，不写未实现的参数校验规则。
+  - 同步 §2.1 清单：增列该端点并把计数改为 32，Web 调用列如实标注“尚未接入（对比页待实现）”，避免同一文件内自相矛盾。
+  - §15 变更记录追加本次条目，符合该文档既有惯例。
+- 明确排除：不改任何产品代码、测试、路由或 schema；不改 D 的提案文档（属 D 维护，本次只报告其 §2 失效）；不实现对比页 UI；不改 §12、§13；不推送 `main`（已与上游一致，无内容可推）；不把上一任务未提交的改动带进本分支。
+
+## 实施措施
+
+1. 建分支 `task03/comparison-api-spec`。
+2. 在 `HTTP_API.md` §10.3 之后新增 §10.4，字段以代码为准：五档 `ComparisonOutcome`、缺失语义、`decided`/`total`、授权与 404 收敛、错误码表。
+3. `§2.1` 增列 `GET /api/v1/reports/comparisons`，计数 31 改为 32。
+4. `§15` 变更记录追加 2026-09-20 条目。
+5. 精确暂存这 3 个改动加本行动文档，检查暂存 diff 后提交。
+6. 推送到 `origin`（个人 fork）并给出向上游提 PR 的链接；本机无 `gh`，PR 由用户在网页确认创建。
+
+完成标准：`HTTP_API.md` 的 §10.4 与实现、测试三者字段完全一致；§2.1 计数与源码路由数一致；提交只含本次范围；分支已推送且能给出 PR 链接。
+
+## 实际修改的文件树
+
+```text
+D:\agent-exam\
+├─ docs\interfaces\HTTP_API.md
+│  # 修改：新增 §10.4 跨批次对比报告；§2.1 增列端点并 31→32；§15 追加变更记录
+└─ docs\actions\2026-09-20-task03-comparison-api-doc.md
+   # 新增：本次落笔的请求、依据、执行与验证记录
+```
+
+本次不引入代码设计模式，也不新增顶层目录或接口：只把已实现契约写入既有 HTTP 文档。
+
+## 修改后自验证方式
+
+1. `git diff docs/interfaces/HTTP_API.md`：逐项对照 `report_comparisons.py` 的 DTO 与 `service.compare` 的分支，确认字段名、五个 `outcome` 取值、错误码和上限数字一致。
+2. 在全文中检索 `coverage`：预期 §10.4 内不出现该字段；确认没有把不存在的字段写进契约。
+3. 检索 `31 个`：预期计数已改为 32，且 §2.1 表内出现对比端点的行。
+4. 与测试对照：`test_comparison_http.py` 断言的 `decided`/`total`/`resolved is None`/`report_path is None` 必须都能在 §10.4 找到对应描述。
+5. `git show --stat HEAD` 与 `git diff --cached --name-only`：确认提交只含 `HTTP_API.md` 与本次行动文档。
+6. 推送后比较本地分支与 `git ls-remote origin` 的分支哈希。
+7. Markdown 结构检查：§10.4 位于 §10.3 与 §11 之间，标题层级与相邻小节一致。
+
+## 自验证情况
+
+待回填（编辑、提交、推送后补）。

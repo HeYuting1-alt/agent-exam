@@ -39,7 +39,7 @@
 
 ### 2.1 当前前后端 API 清单（已注册、可由产品 UI 使用）
 
-本表以当前 FastAPI 路由装配和 `apps/web/src/lib` 调用代码为准，只列已经注册的 31 个 HTTP 端点。详细请求/响应形状仍由本文件后续对应章节维护，本表只维护“Web 从哪里调用、页面为什么调用、谁能调用”的追踪关系，避免复制 schema。
+本表以当前 FastAPI 路由装配和 `apps/web/src/lib` 调用代码为准，只列已经注册的 32 个 HTTP 端点。详细请求/响应形状仍由本文件后续对应章节维护，本表只维护“Web 从哪里调用、页面为什么调用、谁能调用”的追踪关系，避免复制 schema。
 
 硬规则：产品 UI 只有在本表存在对应端点时才可提供改变业务事实的按钮或交互；不得用前端假数据、假成功或占位动作模拟未完成能力。导航、菜单开关、URL 切换和向导前后步不改变业务事实，明确属于无 HTTP 请求的本地界面动作。
 
@@ -76,6 +76,7 @@
 | `GET /api/v1/runs/{run_id}/trajectory` | `job-client.runTrajectory` | 安全证据分页读取脱敏轨迹 | 与来源 Job 可见范围相同 |
 | `GET /api/v1/artifacts/{artifact_id}/content` | 报告页同源下载链接 | 下载公开补丁/测试摘要/公开轨迹正文 | 与来源 Job 可见范围相同；仅公开白名单类型 |
 | `GET /api/v1/leaderboard` | `leaderboard/client.leaderboard` | 排行榜按完整冻结条件查询/翻页 | 任一已登录用户；仅正式结果 |
+| `GET /api/v1/reports/comparisons` | 尚未接入（对比页 UI 待实现，任务 03） | 跨批次“题目 × 配置”矩阵对比，形状见第 10.4 节 | 与来源 Job 可见范围相同；任一不可见 Job 使整体返回 404 |
 
 当前明确**未注册、产品 UI 不得提供入口**：`/agent-submissions*`、`/reviews*`、普通用户 `POST /runs`，以及第 8 节保留形状中的通用 `GET /runs` / `GET /runs/{run_id}`。这些是后续契约或历史候选，不是当前已完成 API。HTTP 也没有制品删除接口；到期清理由 owner 在评测机执行本地维护命令，因此 Web 不显示“删除制品”按钮。
 
@@ -665,6 +666,87 @@ Quality Judge 的触发由后端判定，浏览器不能通过 query 强迫运�
 
 MVP 排行榜只接受 `evaluation_track=closed_book`。数据模型保留 `open_book_experimental`，但创建和查询均返回未启用；未来启用时只允许平台统一 Web 工具并与闭卷严格分榜，不使用各 Agent 各自的原生搜索工具。
 
+### 10.4 跨批次对比报告
+
+`GET /api/v1/reports/comparisons?job_ids=<uuid>,<uuid>,...`
+
+只读 GET，用于“题目 × 配置”矩阵对比：一次请求返回多批次聚合结果，页面不必为每个格子各发一次请求。`job_ids` 必填，为逗号分隔的 Job UUID；服务端去重并保留首次出现的顺序作为矩阵列序，上限 20（常量 `MAX_COMPARISON_JOBS`）。携带会话 Cookie；无会话返回 `401`。
+
+成功 `200` 返回 `columns/rows/totals` 三段：
+
+```json
+{
+  "columns": [
+    {
+      "job_id": "00000000-0000-0000-0000-000000000103",
+      "agent_configuration_id": "00000000-0000-0000-0000-000000000102",
+      "agent_display_name": "Codex 0.153.0 / gpt-5.6-terra / medium"
+    }
+  ],
+  "rows": [
+    {
+      "task_instance_id": "python__mypy-15413",
+      "repo": "python/mypy",
+      "cells": [
+        {
+          "outcome": "resolved",
+          "resolved": true,
+          "run_id": "00000000-0000-0000-0000-000000000104",
+          "failure_code": null,
+          "report_path": "/api/v1/reports/runs/00000000-0000-0000-0000-000000000104"
+        },
+        {
+          "outcome": "missing",
+          "resolved": null,
+          "run_id": null,
+          "failure_code": null,
+          "report_path": null
+        }
+      ]
+    }
+  ],
+  "totals": [
+    {
+      "resolved": 6,
+      "unresolved": 0,
+      "infrastructure_error": 0,
+      "incomplete": 0,
+      "missing": 0,
+      "decided": 6,
+      "total": 6
+    }
+  ]
+}
+```
+
+`columns[]` 每个（Job × 配置）一列，含 `job_id/agent_configuration_id/agent_display_name`；`rows[]` 是所选 Job 题目的并集，按 `(repo, task_instance_id)` 升序，每行含 `task_instance_id/repo/cells`，其中 `cells` 与 `columns` 一一对应。
+
+单元格 `outcome` 是本接口独立的五档，**不改动第 10.1 节既有 `outcome` 的四档**：
+
+| 值 | 判定 |
+|---|---|
+| `resolved` | Run `COMPLETED` 且 `resolved_summary=true` |
+| `unresolved` | Run `COMPLETED` 且 `resolved_summary=false` |
+| `infrastructure_error` | Run `FAILED` |
+| `incomplete` | 其余非终态（取消/未完成） |
+| `missing` | ① 该组合没有 Run；或 ② Run `COMPLETED` 但报告不可读 |
+
+缺失语义是硬规则：`missing` 的 `resolved` 必须是 `null`（不是 `false`）、`report_path` 为 `null`，**不当作未通过或零**；`missing` 的 `run_id` 为 `null` 表示没有 Run、非 `null` 表示有 Run 但报告缺失，供界面区分文案。
+
+`totals[]` 每列一组分类计数，七个字段均为整数：`resolved/unresolved/infrastructure_error/incomplete/missing`、`decided`（= 前四档之和，即已有结论数）、`total`（= `decided + missing`）。本接口不返回字符串覆盖率，页面用 `decided/total` 自行呈现；缺失不扣减 `total` 分母。
+
+授权沿用第 10.1/10.2 节既有报告规则，不新设计：owner 可对比全部，协作者只能对比自己创建的 Job；任一不可见、不可读的 Job 使整个请求收敛为 `404 JOB_NOT_FOUND`，不指出是哪一个；`result_scope=internal_test` 的 Job 按不存在处理。响应不返回对象键、秘密路径或原始正文，下载仍走第 9.3 节公开三类制品。
+
+| 情况 | HTTP | `error.code` |
+|---|---:|---|
+| 无会话 | 401 | `AUTHENTICATION_REQUIRED` |
+| 不可见、不存在或 `internal_test` 的 Job（整体收敛） | 404 | `JOB_NOT_FOUND` |
+| `job_ids` 为空 | 400 | `EMPTY_COMPARISON_SELECTION` |
+| `job_ids` 含非 UUID | 400 | `INVALID_REQUEST` |
+| 去重后超过 20 个 Job | 400 | `COMPARISON_LIMIT_EXCEEDED` |
+| 缺少 `job_ids` 等参数校验失败 | 422 | `VALIDATION_ERROR` |
+| 存储正文或数据库读取失败 | 503 | `DEPENDENCY_UNAVAILABLE` |
+
 ## 11. Human Review API
 
 本节全部接口在 M1 后启用；M1 不注册这些路由，也不显示工作台或要求相应数据库表。普通安全证据查看仍由 Run/Report/Artifact 接口提供。
@@ -759,6 +841,7 @@ FastAPI route 文件只做 schema、HTTP 状态和用例调用，不能直接启
 
 ## 15. 变更记录
 
+- 2026-09-20：任务 03 新增第 10.4 节跨批次对比报告 `GET /api/v1/reports/comparisons`，单元格采用独立五档并固定缺失语义；第 2.1 节清单同步该端点。
 - 2026-09-13：任务 12 扩展制品安全元数据，增加 `available/not_ready/deleted` 和已删除正文 410；保留公开三类正文白名单，未增加 HTTP 删除入口。
 - 2026-09-09：按总架构阶段决定标注后续 Judge/复核接口；M1 保留兼容空字段、关闭复核路由与工作台，所有者批准和安全证据查看不变。
 
