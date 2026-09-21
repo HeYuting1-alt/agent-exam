@@ -2,7 +2,7 @@
 
 ## 状态与情况说明
 
-- 状态：已完成（§10.4 正文）；**待补两条 400**，触发条件见文末“后续”节
+- 状态：已完成（§10.4 正文）；**本 PR 已决定关闭**（`main` 上已有 §10.4，见文末“后续”节）；原“待补两条 400”**已解除、无需执行**
 - 来源请求：用户按任务 03 发出脚本，要求把 D 定稿的跨批次对比接口写入 `docs/interfaces/HTTP_API.md` 的 §10.3 之后成为 §10.4，并在 fork 上建分支、提 PR。用户给的脚本被截断：`python - <<'PY'` 没有结束标记、Python 字符串未收尾、也没有 `git add/commit/push`；其中粘贴的响应示例还停留在提案早期版本。因此本次按“查明真实状态再落笔”执行，不照抄脚本正文。
 - 职责依据：任务 03 的任务 DRI 是 **B（Web 与 HTTP 模块）**，`HTTP_API.md` 由该模块维护；[D 的定稿提案](2026-09-20-d-comparison-api-proposal.md)第 5 节把“本文落入 `HTTP_API.md` §10.4”列为 **B** 的工作。本次即该项落笔。
 - 当前事实（本次逐条核对，均以代码和测试为准）：
@@ -85,14 +85,21 @@ D:\agent-exam\
 
 **B 的一处判断更正**：本文件初稿写的“本仓没有严格 query 校验层”是错的——搜索未递归进 `routes/` 子目录。准确事实：该机制早已存在于 `leaderboard/routes.py:53-57`、`jobs/routes.py:83-95`、`catalog.py:123-125` 三处，且都在会话检查之前执行；对比端点当时缺这条是**真实的缺口**，D 补的是第 4 处，不是新规范。
 
-### 本 PR 有意不含的内容（2026-09-20 决定）
+### 本 PR 有意不含的内容（2026-09-20 决定）—— **已解除，无需补写**
 
-§10.4 **不含** D 在 `cdcb4cf` 新增的两条 400（未知 query 参数名、`job_ids` 重复出现 → `INVALID_REQUEST`）与“参数校验先于会话检查”的优先级说明。
+当时的决定：§10.4 不含 D 在 `cdcb4cf` 新增的两条 400（未知 query 参数名、`job_ids` 重复出现 → `INVALID_REQUEST`）与“参数校验先于会话检查”的优先级说明，也不含去重顺序之外的 UUID 规范化。原因是该实现只存在于 `upstream/xinyue-modules`、尚未合入 `main`，写进契约会让本 PR 依赖 D 的分支合并，并使 `main` 上出现“有契约、无可读实现”的描述。当时判断对对比页 UI 无影响——UI 自行拼接 `job_ids`，不会触发这两条。
 
-- **原因**：该实现只存在于 `upstream/xinyue-modules`，尚未合入 `main`。写进 §10.4 会让本契约 PR 依赖 D 的分支合并，并让 `main` 上出现“有契约、无可读实现”的描述；不写则本 PR 全部内容都与 `main` 一致，可独立合并。
-- **影响**：契约暂时不完整（不是错误）。对对比页 UI 无影响——UI 自行拼接 `job_ids`，不会触发这两条。
-- **触发补写**：D 宣布 `xinyue-modules` 已合入 `main` 之后，在 §10.4 补两条 400 与优先级说明（可另开小 PR）。
-- **唯一权威**：这条待办的完整记录以本文件为准；模块文档 `progress.md` 与实现侦察行动只放指针，不复制理由。契约正文保持纯净，不写分支与合并状态。
+**该待办已解除，不需要再触发补写。** `main` 之后前进了 7 个提交，其中 `7553ce0 fix: harden comparison reports and preset upgrade`（fengyy，来源是“对 D 合并内容审查发现的问题”）**已在 `main` 上完成并写入契约**：
+
+- 严格参数校验落在新路径 `apps/backend/src/eval_platform/delivery/http/routes/jobs/reporting/comparisons.py:111-114`——对比路由已从 `report_comparisons.py` **移入 `reporting/` 子目录**；
+- `main` 的 `HTTP_API.md` §10.4 由该提交**重写**，已含未知/重复参数 400、UUID 去空白并规范化为小写、跨仓库同名实例不合并、五档与缺失语义、`decided`/`total` 整数；
+- 同一提交还把五档枚举**收敛**为 `application/reporting/matrix.py` 的 `ComparisonOutcome`（HTTP 层改为 import），并让 `routes/jobs/` 顶层回到 8 个 `.py`、满足文件数指标。
+
+因此本 PR 的 §10.4 不再是任何内容的补充来源；**“待补两条 400”作废**。
+
+### 本 PR 的结论：关闭（不合并）
+
+`main` 上已有 §10.4，本分支若合并会**整段替换**该节。经确认 `7553ce0` 为最终版，**本 PR 决定关闭**。本文件保留为“B 侧落笔过程”的记录——其中的字段核对（20/20）、对 B 自身错误判断的更正、D 的回复与环境恢复实测仍然有效；**§10.4 的现行正文以 `main` 上的版本为唯一权威**。
 
 **本机环境与实测（2026-09-20）**：后端环境已恢复——`uv 0.12.17`（`python -m pip install --user uv`，直连 PyPI）+ uv 管理的 Python 3.13.15（本机原只有 3.14.5，不满足 `requires-python`），`uv sync --locked --no-python-downloads` 退出码 0 建立 `.venv`。§10.4 所描述的既有行为已实跑佐证：`test_comparison_http.py` → **3 passed**（本分支无 D 的第 4 个用例）、`tests/jobs/reporting` → 14 passed / 2 skipped、全量 → 2 failed / 404 passed / 84 skipped（2 个失败为缺 `framework/harbor`）。因此上文“本次没有运行的行为检查”这条限制**已部分解除**：字段与既有行为有实跑佐证；**两条 400 的行为仍未在本机验证**（不在本分支）。基线可移植性的说明见模块文档 `docs/architecture/modules/web-and-http/actions/03-comparison-api-impl.md` 第 5.3 节（随 `docs/web-http-module-scaffold` 分支合并后可用；此处不写链接，避免本分支单独合并时产生断链）。
 
