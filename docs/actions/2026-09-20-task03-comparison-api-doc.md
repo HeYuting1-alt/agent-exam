@@ -2,21 +2,21 @@
 
 ## 状态与情况说明
 
-- 状态：已完成
+- 状态：已完成（§10.4 正文）；**待补两条 400**，触发条件见文末“后续”节
 - 来源请求：用户按任务 03 发出脚本，要求把 D 定稿的跨批次对比接口写入 `docs/interfaces/HTTP_API.md` 的 §10.3 之后成为 §10.4，并在 fork 上建分支、提 PR。用户给的脚本被截断：`python - <<'PY'` 没有结束标记、Python 字符串未收尾、也没有 `git add/commit/push`；其中粘贴的响应示例还停留在提案早期版本。因此本次按“查明真实状态再落笔”执行，不照抄脚本正文。
 - 职责依据：任务 03 的任务 DRI 是 **B（Web 与 HTTP 模块）**，`HTTP_API.md` 由该模块维护；[D 的定稿提案](2026-09-20-d-comparison-api-proposal.md)第 5 节把“本文落入 `HTTP_API.md` §10.4”列为 **B** 的工作。本次即该项落笔。
 - 当前事实（本次逐条核对，均以代码和测试为准）：
   - 对比端点**已实现并已注册**：`delivery/http/routes/jobs/report_comparisons.py`、`delivery/http/app.py:124`；契约测试 `tests/jobs/reporting/test_comparison_http.py` 有 3 个用例。`HTTP_API.md` 此前没有 §10.4，全库文档也没有描述该端点。
   - 真实 `totals` 形状是 **7 个整数**：`resolved/unresolved/infrastructure_error/incomplete/missing/decided/total`；其中 `decided = resolved + unresolved + infrastructure_error + incomplete`，`total = decided + missing`（`report_comparisons.py:48-111`）。测试断言 `body["totals"][0]["total"] == 2`。
   - 用户脚本与 D 提案 §2 示例里的 `"coverage": "6/6"` **不存在于实现**。提案 §6 决定 4 已明确“`totals` 提供 `decided` 与 `total` 两个整数，**不另设字符串覆盖率**”，实现与测试都按该决定；只有提案 §2 的示例与字段表仍留着旧的 `coverage`，属于失效描述。
-  - 已实现的 400 族只有三种：空选择 `EMPTY_COMPARISON_SELECTION`、非 UUID `INVALID_REQUEST`、超过 20 个 `COMPARISON_LIMIT_EXCEEDED`（`test_comparison_http.py:115-129`、`errors.py:84-90`）。**“未知参数、重复参数返回 400”没有实现**：本仓没有严格 query 校验层，FastAPI 默认忽略未知 query 参数、重复标量参数取最后一个值。提案 §4 该行不能照写。
+  - 已实现的 400 族**当时**只有三种：空选择 `EMPTY_COMPARISON_SELECTION`、非 UUID `INVALID_REQUEST`、超过 20 个 `COMPARISON_LIMIT_EXCEEDED`（`test_comparison_http.py:115-129`、`errors.py:84-90`）。**“未知参数、重复参数返回 400”当时在对比端点上确实没有实现**，提案 §4 该行不能照写。（⚠️ **2026-09-20 更正**：本条初稿还写了“本仓没有严格 query 校验层”，**那是错的**——该机制早已存在于 `leaderboard/routes.py:53-57`、`jobs/routes.py:83-95`、`catalog.py:123-125` 三处，B 的搜索未递归进 `routes/` 子目录。对比端点当时缺这条校验，缺口为真；D 随后补实现，成为第 4 处。详见文末“后续”节。）
   - 去重按出现顺序（`dict.fromkeys`）、上限 20（`MAX_COMPARISON_JOBS`）、任一无权或不可读 Job 令整体失败且不指出是哪个、`internal_test` 按不存在处理（`service.py:57-73`）。
   - 行序为 `(repo, task_instance_id)` 升序（`matrix.py:94`）。
   - §2.1 清单自称“只列已经注册的 31 个 HTTP 端点”，而源码现有 **32** 个路由装饰器，第 32 个正是对比端点；Web 侧 `apps/web/src/` 没有任何 `comparisons` 调用（对比页 UI 尚未实现，属任务 03 后续）。
   - `GET /api/v1/reports/comparisons` 落在 §12 映射表已有的 `/reports` 行内，无需改动该表。
 - 已确认决定：
   - 文档以**代码与测试**为准，不复制用户脚本/提案 §2 中不存在的 `coverage` 字段。
-  - §10.4 只写已实现且可核验的行为，不写未实现的参数校验规则。
+  - §10.4 只写已实现且可核验的行为，不写未实现的参数校验规则。（该决定的前提是“当时实现里没有这条校验”；D 于同日补实现后，§10.4 需要补写——**B 决定有意延后**，见文末“后续”节。）
   - 同步 §2.1 清单：增列该端点并把计数改为 32，Web 调用列如实标注“尚未接入（对比页待实现）”，避免同一文件内自相矛盾。
   - §15 变更记录追加本次条目，符合该文档既有惯例。
 - 明确排除：不改任何产品代码、测试、路由或 schema；不改 D 的提案文档（属 D 维护，本次只报告其 §2 失效）；不实现对比页 UI；不改 §12、§13；不推送 `main`（已与上游一致，无内容可推）；不把上一任务未提交的改动带进本分支。
@@ -70,5 +70,30 @@ D:\agent-exam\
   - 本机无 `gh`，无法用命令行创建 PR，只能给出网页链接，PR 由用户在网页确认创建。
   - §12 映射表未改：既有 `/reports`、`/leaderboard` 行已涵盖对比端点，无需新增。
   - D 的提案文档 §2 示例与字段表仍写着 `coverage`，与提案 §6 决定 4 和实现不符；该文档属 D 维护，本次只报告、未修改。
-  - 提案 §4 声称“未知参数、重复参数返回 400”，但实现未做该校验（本仓无严格 query 校验层，FastAPI 默认忽略未知 query 参数、重复标量参数取最后一个值），因此未写入 §10.4。是补实现还是改提案，需 B/D 决定。
+  - 提案 §4 声称“未知参数、重复参数返回 400”，但对比端点当时未做该校验（**注意：不是“本仓没有该机制”**，见上文更正），因此本次未写入 §10.4。是补实现还是改提案，当时留待 B/D 决定——**D 已答复：补实现**，见文末“后续”节。
   - §13 接口验证清单未新增对比接口条目，属可选项，本次未扩大范围。
+
+## 2026-09-20 后续：D 的回复、错误更正与本 PR 有意不含的内容
+
+**D 的回复**：三项全部对齐。
+
+- 确认对比接口在 `bd47925` 交付。
+- **补了一件实现**：`cdcb4cf feat: reject unknown and duplicate comparison query params`（`_reject_foreign_params`，与排行榜等既有读端点同模式；新增第 4 个契约用例）。
+- 确认 `ComparisonOutcome` 与 `MatrixCell` **保持独立、不收敛、不提升为跨模块公开接口**。
+- 提案文档两处失真由 D 在 `c5e036d` 收口（§2 改 `decided + total`；§4 补实现+测试）。
+- D 的交叉验证：`test_comparison_http.py -q` → **4 passed**；全量 2 failed / 453 passed / 36 skipped。
+
+**B 的一处判断更正**：本文件初稿写的“本仓没有严格 query 校验层”是错的——搜索未递归进 `routes/` 子目录。准确事实：该机制早已存在于 `leaderboard/routes.py:53-57`、`jobs/routes.py:83-95`、`catalog.py:123-125` 三处，且都在会话检查之前执行；对比端点当时缺这条是**真实的缺口**，D 补的是第 4 处，不是新规范。
+
+### 本 PR 有意不含的内容（2026-09-20 决定）
+
+§10.4 **不含** D 在 `cdcb4cf` 新增的两条 400（未知 query 参数名、`job_ids` 重复出现 → `INVALID_REQUEST`）与“参数校验先于会话检查”的优先级说明。
+
+- **原因**：该实现只存在于 `upstream/xinyue-modules`，尚未合入 `main`。写进 §10.4 会让本契约 PR 依赖 D 的分支合并，并让 `main` 上出现“有契约、无可读实现”的描述；不写则本 PR 全部内容都与 `main` 一致，可独立合并。
+- **影响**：契约暂时不完整（不是错误）。对对比页 UI 无影响——UI 自行拼接 `job_ids`，不会触发这两条。
+- **触发补写**：D 宣布 `xinyue-modules` 已合入 `main` 之后，在 §10.4 补两条 400 与优先级说明（可另开小 PR）。
+- **唯一权威**：这条待办的完整记录以本文件为准；模块文档 `progress.md` 与实现侦察行动只放指针，不复制理由。契约正文保持纯净，不写分支与合并状态。
+
+**本机环境与实测（2026-09-20）**：后端环境已恢复——`uv 0.12.17`（`python -m pip install --user uv`，直连 PyPI）+ uv 管理的 Python 3.13.15（本机原只有 3.14.5，不满足 `requires-python`），`uv sync --locked --no-python-downloads` 退出码 0 建立 `.venv`。§10.4 所描述的既有行为已实跑佐证：`test_comparison_http.py` → **3 passed**（本分支无 D 的第 4 个用例）、`tests/jobs/reporting` → 14 passed / 2 skipped、全量 → 2 failed / 404 passed / 84 skipped（2 个失败为缺 `framework/harbor`）。因此上文“本次没有运行的行为检查”这条限制**已部分解除**：字段与既有行为有实跑佐证；**两条 400 的行为仍未在本机验证**（不在本分支）。基线可移植性的说明见[实现侦察行动](../architecture/modules/web-and-http/actions/03-comparison-api-impl.md)第 5.3 节。
+
+**PR 状态**：分支 `task03/comparison-api-spec` 已推送到 `origin`（个人 fork），**PR 尚未创建**——本机 `gh` 未登录（浏览器授权在换取 token 时因直连超时失败）。创建链接见[进展与未决项](../architecture/modules/web-and-http/progress.md)。
